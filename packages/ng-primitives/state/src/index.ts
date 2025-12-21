@@ -5,6 +5,7 @@ import {
   ChangeDetectorRef,
   computed,
   DestroyRef,
+  effect,
   ElementRef,
   FactoryProvider,
   forwardRef,
@@ -456,6 +457,25 @@ export function styleBinding(
         element.nativeElement.style.removeProperty(styleName);
       }
     },
+  });
+}
+
+export function styleBindingImmediate(
+  element: ElementRef<HTMLElement>,
+  style: string,
+  value: (() => string | number | null) | string | number | null,
+): void {
+  effect(() => {
+    const styleValue = typeof value === 'function' ? value() : value;
+    // we should look for units in the style name, just like Angular does e.g. width.px
+    const styleUnit = getStyleUnit(style);
+    const styleName = styleUnit ? style.replace(`.${styleUnit}`, '') : style;
+
+    if (styleValue !== null) {
+      element.nativeElement.style.setProperty(styleName, styleValue + styleUnit);
+    } else {
+      element.nativeElement.style.removeProperty(styleName);
+    }
   });
 }
 
