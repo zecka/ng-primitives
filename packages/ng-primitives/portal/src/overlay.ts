@@ -113,6 +113,8 @@ export class NgpOverlay<T = unknown> {
   private readonly focusMonitor = inject(FocusMonitor);
   /** Access any parent overlays */
   private readonly parentOverlay = inject(NgpOverlay, { optional: true });
+  /** Track child overlays for outside click detection */
+  private readonly childOverlays = new Set<NgpOverlay>();
   /** Signal tracking the portal instance */
   private readonly portal = signal<NgpPortal | null>(null);
 
@@ -202,6 +204,11 @@ export class NgpOverlay<T = unknown> {
         }
       });
 
+    // Register with parent overlay for outside click detection
+    if (this.parentOverlay) {
+      this.parentOverlay.registerChildOverlay(this);
+    }
+
     // if there is a parent overlay and it is closed, close this overlay
     this.parentOverlay?.closing.pipe(safeTakeUntilDestroyed(this.destroyRef)).subscribe(() => {
       if (this.isOpen()) {
@@ -230,7 +237,12 @@ export class NgpOverlay<T = unknown> {
           ? path.includes(this.config.anchorElement)
           : false;
 
-        if (!isInsideOverlay && !isInsideTrigger && !isInsideAnchor) {
+        if (
+          !isInsideOverlay &&
+          !isInsideTrigger &&
+          !isInsideAnchor &&
+          !this.isInsideChildOverlay(path)
+        ) {
           this.hide();
         }
       });
@@ -246,7 +258,10 @@ export class NgpOverlay<T = unknown> {
       });
 
     // Ensure cleanup on destroy
-    this.destroyRef.onDestroy(() => this.destroy());
+    this.destroyRef.onDestroy(() => {
+      this.parentOverlay?.unregisterChildOverlay(this);
+      this.destroy();
+    });
   }
 
   /**
@@ -394,6 +409,39 @@ export class NgpOverlay<T = unknown> {
    */
   getElements(): HTMLElement[] {
     return this.portal()?.getElements() ?? [];
+  }
+
+  /**
+   * Register a child overlay for outside click detection.
+   * @internal
+   */
+  registerChildOverlay(child: NgpOverlay): void {
+    this.childOverlays.add(child);
+  }
+
+  /**
+   * Unregister a child overlay.
+   * @internal
+   */
+  unregisterChildOverlay(child: NgpOverlay): void {
+    this.childOverlays.delete(child);
+  }
+
+  /**
+   * Check if the event path includes any child overlay elements (recursively).
+   * @internal
+   */
+  isInsideChildOverlay(path: EventTarget[]): boolean {
+    for (const child of this.childOverlays) {
+      const childElements = child.getElements();
+      if (childElements.some(el => path.includes(el))) {
+        return true;
+      }
+      if (child.isInsideChildOverlay(path)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
